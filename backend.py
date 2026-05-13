@@ -85,8 +85,12 @@ def get_task(task_id: str):
 # ─── 任务操作 ────────────────────────────────────────────────────────────────
 
 @app.post("/api/task/{task_id}/complete")
-def complete_task(task_id: str):
-    run_kanban(["complete", task_id])
+def complete_task(task_id: str, data: dict = {}):
+    result = data.get("result", "")
+    if result:
+        run_kanban(["complete", task_id, "--result", result])
+    else:
+        run_kanban(["complete", task_id])
     return {"ok": True}
 
 
@@ -127,7 +131,7 @@ def create_task(data: dict):
     notes = data.get("notes", default_notes).strip()
     if notes and notes != default_notes:
         body_parts.append("\n\n---\n" + notes)
-    elif body_parts:
+    elif body_parts or not notes:
         body_parts.append("\n\n---\n" + default_notes)
 
     if body_parts:

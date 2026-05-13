@@ -108,6 +108,59 @@ def assign_task(task_id: str, profile: str = Query(...)):
     return {"ok": True}
 
 
+# ─── 创建任务 ────────────────────────────────────────────────────────────────
+
+@app.post("/api/tasks")
+def create_task(data: dict):
+    title = data.get("title", "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+
+    args = [title]
+
+    body_parts = []
+    if data.get("body"):
+        body_parts.append(data["body"].strip())
+    if data.get("acceptance_criteria"):
+        body_parts.append("\n\n## 接收准则\n" + data["acceptance_criteria"].strip())
+    default_notes = "注意GBK文件不要乱码"
+    notes = data.get("notes", default_notes).strip()
+    if notes and notes != default_notes:
+        body_parts.append("\n\n---\n" + notes)
+    elif body_parts:
+        body_parts.append("\n\n---\n" + default_notes)
+
+    if body_parts:
+        args.extend(["--body", "\n".join(body_parts)])
+
+    assignee = data.get("assignee")
+    if assignee:
+        args.extend(["--assignee", assignee])
+
+    skills = data.get("skills")
+    if skills:
+        for s in skills:
+            args.extend(["--skill", s])
+
+    max_retries = data.get("max_retries")
+    if max_retries is not None:
+        args.extend(["--max-retries", str(max_retries)])
+
+    priority = data.get("priority")
+    if priority is not None:
+        args.extend(["--priority", str(priority)])
+
+    result = run_kanban(["create"] + args)
+    # create 成功返回纯文本，格式: Created task t_xxxx
+    if result.get("ok") and "task_id" not in result:
+        import re
+        m = re.search(r"(t_[a-z0-9]+)", result.get("message", ""))
+        task_id = m.group(1) if m else "unknown"
+        return {"task_id": task_id, "status": "created"}
+
+    return result
+
+
 # ─── Worker列表 ─────────────────────────────────────────────────────────────
 
 @app.get("/api/profiles")

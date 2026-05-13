@@ -49,6 +49,8 @@
     /* 弹窗 */
     #modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
     #modal.active { display: flex; }
+    #createModal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1001; }
+    #createModal.active { display: flex; }
     .modal-content { background: white; border-radius: 16px; padding: 28px; width: 640px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
     .modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
     .modal-id { color: #0969da; font-size: 13px; font-weight: 600; font-family: monospace; margin-bottom: 4px; }
@@ -81,6 +83,7 @@
       <option value="done">DONE</option>
     </select>
     <button onclick="loadTasks()">刷新</button>
+    <button class="primary" onclick="openCreateModal()">+ 新建</button>
   </div>
 
   <div class="workers-panel">
@@ -109,6 +112,63 @@
       <div class="modal-info" id="modalInfo"></div>
       <div id="modalBody"></div>
       <div class="modal-actions" id="modalActions"></div>
+    </div>
+  </div>
+
+  <!-- 新建任务弹窗 -->
+  <div id="createModal">
+    <div class="modal-content" style="width:700px;">
+      <div class="modal-header">
+        <h2 style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">新建任务</h2>
+        <button class="close-btn" onclick="closeCreateModal()">×</button>
+      </div>
+      <form id="createForm" onsubmit="submitCreate(event)">
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">标题 *</label>
+          <input type="text" id="c-title" required style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">任务描述</label>
+          <textarea id="c-body" rows="3" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">接收准则</label>
+          <textarea id="c-acceptance" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">注意事项</label>
+          <textarea id="c-notes" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;">注意GBK文件不要乱码</textarea>
+        </div>
+        <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:140px;">
+            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">重试次数</label>
+            <input type="number" id="c-retries" value="2" min="0" max="10" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
+          </div>
+          <div style="flex:1;min-width:140px;">
+            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">优先级</label>
+            <input type="number" id="c-priority" value="0" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
+          </div>
+        </div>
+        <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:140px;">
+            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">使用技能</label>
+            <select id="c-skills" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;">
+              <option value="kanban-task-workflow">kanban-task-workflow</option>
+              <option value="">不使用技能</option>
+            </select>
+          </div>
+          <div style="flex:1;min-width:140px;">
+            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">分配给</label>
+            <select id="c-assignee" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;">
+              <option value="">不分配</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:16px;border-top:1px solid #eaeef2;">
+          <button type="button" onclick="closeCreateModal()">取消</button>
+          <button type="submit" class="primary">创建任务</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -146,6 +206,12 @@ async function loadProfiles() {
       profiles.length
         ? profiles.map(p => `<span class="worker-tag" onclick="assignToWorker('${p}')">${p}</span>`).join('')
         : '<span style="color:#656d76;font-size:13px;">无可用worker</span>';
+    // 填充创建任务的 assignee 下拉框
+    const assigneeSelect = document.getElementById('c-assignee');
+    if (assigneeSelect) {
+      assigneeSelect.innerHTML = '<option value="">不分配</option>' +
+        profiles.map(p => `<option value="${p}">${p}</option>`).join('');
+    }
   } catch (e) {
     document.getElementById('workersList').innerHTML = '<span style="color:#cf222e;font-size:13px;">加载失败</span>';
   }
@@ -301,6 +367,66 @@ function closeModal() {
   selectedTaskId = null;
 }
 
+function openCreateModal() {
+  // 重置表单
+  document.getElementById('c-title').value = '';
+  document.getElementById('c-body').value = '';
+  document.getElementById('c-acceptance').value = '';
+  document.getElementById('c-notes').value = '注意GBK文件不要乱码';
+  document.getElementById('c-retries').value = '2';
+  document.getElementById('c-priority').value = '0';
+  document.getElementById('c-skills').value = 'kanban-task-workflow';
+  document.getElementById('c-assignee').value = '';
+  document.getElementById('createModal').classList.add('active');
+}
+
+function closeCreateModal() {
+  document.getElementById('createModal').classList.remove('active');
+}
+
+async function submitCreate(e) {
+  e.preventDefault();
+  const title = document.getElementById('c-title').value.trim();
+  if (!title) {
+    alert('标题不能为空');
+    return;
+  }
+  const body = document.getElementById('c-body').value.trim();
+  const acceptance = document.getElementById('c-acceptance').value.trim();
+  const notes = document.getElementById('c-notes').value.trim();
+  const maxRetries = parseInt(document.getElementById('c-retries').value) || 0;
+  const priority = parseInt(document.getElementById('c-priority').value) || 0;
+  const skill = document.getElementById('c-skills').value.trim();
+  const assignee = document.getElementById('c-assignee').value;
+
+  const payload = {
+    title,
+    body,
+    acceptance_criteria: acceptance,
+    notes,
+    max_retries: maxRetries,
+    priority
+  };
+  if (skill) payload.skills = [skill];
+  if (assignee) payload.assignee = assignee;
+
+  try {
+    const res = await fetch(`${API}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.text() }));
+      throw new Error(err.detail || res.statusText);
+    }
+    closeCreateModal();
+    loadTasks();
+  } catch (e) {
+    alert('创建失败: ' + e.message);
+  }
+}
+
 function escapeHtml(s) {
   if (s === null || s === undefined) return '';
   return String(s)
@@ -324,8 +450,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 document.getElementById('modal').addEventListener('click', e => {
   if (e.target === document.getElementById('modal')) closeModal();
 });
-
-// 初始化
+document.getElementById('createModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('createModal')) closeCreateModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeCreateModal(); } });
 loadTasks();
 loadProfiles();
 setInterval(loadTasks, 30000);

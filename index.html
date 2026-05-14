@@ -441,6 +441,8 @@ function showTaskModal(task) {
   const status = task.status || 'todo';
   if (status !== 'done') {
     actions += `<button class="primary" onclick="doAction('complete')">✓ 完成</button>`;
+  }
+  if (status === 'done') {
     actions += `<button class="danger" onclick="doAction('archive')">归档</button>`;
   }
   if (status !== 'blocked') {

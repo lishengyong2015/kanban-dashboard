@@ -39,6 +39,8 @@
     .task-title { font-weight: 600; font-size: 14px; color: #1a1a1a; margin-bottom: 8px; line-height: 1.4; }
     .task-meta { display: flex; justify-content: space-between; align-items: center; }
     .task-id { color: #0969da; font-size: 12px; font-weight: 500; font-family: monospace; }
+#workerModal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:1002; }
+#workerModal.active { display:flex; }
     .task-assignee { font-size: 12px; color: #656d76; }
 
     /* 状态颜色 */
@@ -119,6 +121,38 @@
     <div class="column" id="col-running"><div class="column-header"><h3>RUNNING</h3><span class="column-count">0</span></div><div class="task-list"></div></div>
     <div class="column" id="col-blocked"><div class="column-header"><h3>BLOCKED</h3><span class="column-count">0</span></div><div class="task-list"></div></div>
     <div class="column" id="col-done"><div class="column-header"><h3>DONE</h3><span class="column-count">0</span></div><div class="task-list"></div></div>
+  </div>
+
+  <!-- Worker详情弹窗 -->
+  <div id="workerModal">
+    <div class="modal-content" style="width:540px;">
+      <div class="modal-header">
+        <div>
+          <div class="modal-id" id="wmName" style="font-size:16px;font-weight:700;color:#1a1a11;"></div>
+          <span class="badge" id="wmStatus" style="margin-top:4px;"></span>
+        </div>
+        <button class="close-btn" onclick="closeWorkerModal()">×</button>
+      </div>
+      <div class="modal-info" style="margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;">
+        <div class="modal-info-item">模型: <strong id="wmModel">-</strong></div>
+        <div class="modal-info-item">Skills: <strong id="wmSkills">-</strong></div>
+        <div class="modal-info-item">.env: <strong id="wmEnv">-</strong></div>
+        <div class="modal-info-item">SOUL.md: <strong id="wmSoulExists">-</strong></div>
+      </div>
+      <div class="modal-section">
+        <h4>SOUL.md <span style="font-weight:normal;font-size:11px;color:#656d76;">（可编辑）</span></h4>
+        <textarea id="wmSoulContent" rows="12"
+          style="width:100%;font-family:monospace;font-size:13px;
+                 border:1px solid #d0d7de;border-radius:6px;padding:10px;
+                 resize:vertical;box-sizing:border-box;background:#fafafa;"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="primary" onclick="saveSoul()">保存SOUL.md</button>
+        <button id="btnStartGateway" class="primary" onclick="startGateway()" style="display:none;">启动Gateway</button>
+        <button id="btnStopGateway" class="danger" onclick="stopGateway()" style="display:none;">停止Gateway</button>
+        <button onclick="renameProfile()">重命名</button>
+      </div>
+    </div>
   </div>
 
   <!-- 详情弹窗 -->
@@ -234,7 +268,7 @@
   </div>
 
 <script>
-const API = 'http://localhost:8000';
+const API = 'http://localhost:50000';
 let currentTasks = [];
 let selectedTaskId = null;
 let selectedCardIndex = -1;  // 键盘选中索引
@@ -269,7 +303,7 @@ async function loadProfiles() {
     profiles = await res.json();
     document.getElementById('workersList').innerHTML =
       profiles.length
-        ? profiles.map(p => `<span class="worker-tag" onclick="assignToWorker('${p}')">${p}</span>`).join('')
+        ? profiles.map(p => `<span class="worker-tag" onclick="openWorkerModal('${p}')">${p}</span>`).join('')
         : '<span style="color:#656d76;font-size:13px;">无可用worker</span>';
     // 填充创建任务的 assignee 下拉框
     const assigneeSelect = document.getElementById('c-assignee');
@@ -931,6 +965,78 @@ loadStats();
 loadProfiles();
 setInterval(loadTasks, 30000);
 setInterval(loadStats, 30000);
+
+// ─── Worker详情弹窗 ───────────────────────────────────────────────
+let currentWorker = null;
+
+function openWorkerModal(name) {
+  currentWorker = name;
+  document.getElementById('workerModal').classList.add('active');
+  loadWorkerDetail(name);
+}
+
+function closeWorkerModal() {
+  document.getElementById('workerModal').classList.remove('active');
+  currentWorker = null;
+}
+
+async function loadWorkerDetail(name) {
+  const res = await fetch(`${API}/api/profile/${name}`);
+  if (!res.ok) { alert('加载失败'); return; }
+  const d = await res.json();
+  document.getElementById('wmName').textContent = d.name;
+  const status = d.gateway || 'unknown';
+  document.getElementById('wmStatus').textContent = status;
+  document.getElementById('wmStatus').className = `badge badge-${status === 'running' ? 'done' : 'blocked'}`;
+  document.getElementById('wmModel').textContent = d.model || '-';
+  document.getElementById('wmSkills').textContent = d.skills || '-';
+  document.getElementById('wmEnv').textContent = (d['.env'] || d.env) === 'exists' ? '存在 ✓' : '不存在';
+  document.getElementById('wmSoulExists').textContent = d.soul_exists ? '存在 ✓' : '不存在';
+  document.getElementById('wmSoulContent').value = d.soul_content || '';
+  document.getElementById('btnStartGateway').style.display = status !== 'running' ? '' : 'none';
+  document.getElementById('btnStopGateway').style.display = status === 'running' ? '' : 'none';
+}
+
+async function saveSoul() {
+  const content = document.getElementById('wmSoulContent').value;
+  const r = await fetch(`${API}/api/profile/${currentWorker}/soul`, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({content})
+  });
+  if (r.ok) {
+    document.getElementById('wmSoulExists').textContent = '已保存 ✓';
+  } else {
+    alert('保存失败: ' + (await r.text()));
+  }
+}
+
+async function startGateway() {
+  await fetch(`${API}/api/profile/${currentWorker}/start`, {method:'POST'});
+  loadWorkerDetail(currentWorker);
+  loadProfiles();
+}
+
+async function stopGateway() {
+  await fetch(`${API}/api/profile/${currentWorker}/stop`, {method:'POST'});
+  loadWorkerDetail(currentWorker);
+  loadProfiles();
+}
+
+async function renameProfile() {
+  const newName = prompt('输入新名称:');
+  if (!newName || !newName.trim()) return;
+  const r = await fetch(`${API}/api/profile/${currentWorker}/rename`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({new_name: newName.trim()})
+  });
+  if (r.ok) {
+    closeWorkerModal();
+    loadProfiles();
+  } else {
+    const err = await r.json().catch(async () => ({detail: await r.text()}));
+    alert('重命名失败: ' + (err.detail || '未知错误'));
+  }
+}
 </script>
 </body>
 </html>

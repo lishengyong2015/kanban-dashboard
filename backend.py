@@ -7,7 +7,7 @@ import re
 import subprocess
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -234,6 +234,74 @@ def list_profiles():
         if len(parts) >= 2:
             profiles.append(parts[0].lstrip("◆"))
     return profiles
+
+
+# ─── Worker详情 ─────────────────────────────────────────────────────────────
+
+@app.get("/api/profile/{name}")
+def get_profile(name: str):
+    """返回 profile 详细信息"""
+    result = subprocess.run([HERMES_BIN, "profile", "show", name],
+                           capture_output=True, text=True)
+    if result.returncode != 0:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    lines = result.stdout.strip().split("\n")
+    info = {"name": name}
+    for line in lines:
+        if ":" in line:
+            key, val = line.split(":", 1)
+            info[key.strip().lower().replace(" ", "_")] = val.strip()
+
+    # SOUL.md 内容（default profile 在 ~/.hermes/SOUL.md，其他在 profiles/{name}/SOUL.md）
+    if name == "default":
+        soul_path = os.path.expanduser(f"~/.hermes/SOUL.md")
+    else:
+        soul_path = os.path.expanduser(f"~/.hermes/profiles/{name}/SOUL.md")
+    info["soul_exists"] = os.path.exists(soul_path)
+    info["soul_content"] = ""
+    if info["soul_exists"]:
+        with open(soul_path) as f:
+            info["soul_content"] = f.read()
+
+    return info
+
+
+@app.put("/api/profile/{name}/soul")
+def update_soul(name: str, data: dict = Body(...)):
+    if name == "default":
+        soul_path = os.path.expanduser("~/.hermes/SOUL.md")
+    else:
+        soul_path = os.path.expanduser(f"~/.hermes/profiles/{name}/SOUL.md")
+    with open(soul_path, "w") as f:
+        f.write(data.get("content", ""))
+    return {"ok": True, "path": soul_path}
+
+
+@app.post("/api/profile/{name}/start")
+def start_gateway(name: str):
+    r = subprocess.run([HERMES_BIN, "gateway", "start", "-p", name],
+                      capture_output=True, text=True)
+    return {"ok": r.returncode == 0, "output": r.stdout + r.stderr}
+
+
+@app.post("/api/profile/{name}/stop")
+def stop_gateway(name: str):
+    r = subprocess.run([HERMES_BIN, "gateway", "stop", "-p", name],
+                      capture_output=True, text=True)
+    return {"ok": r.returncode == 0, "output": r.stdout + r.stderr}
+
+
+@app.post("/api/profile/{name}/rename")
+def rename_profile(name: str, data: dict = Body(...)):
+    new_name = data.get("new_name", "").strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="new_name required")
+    r = subprocess.run([HERMES_BIN, "profile", "rename", name, new_name],
+                      capture_output=True, text=True)
+    if r.returncode != 0:
+        raise HTTPException(status_code=500, detail=r.stderr)
+    return {"ok": True}
 
 
 # ─── 统计概览 ──────────────────────────────────────────────────────────────

@@ -402,10 +402,11 @@ function renderBoard(tasks) {
     if (!col) return;
     col.querySelector('.column-count').textContent = items.length;
     const cards = items.map((t, i) => `
-      <div class="task-card${selectedCardIndex === i ? ' selected' : ''}" data-idx="${i}" data-id="${t.task_id}" onclick="openTask('${t.task_id}')">
+      <div class="task-card${t.task_id === selectedTaskId ? ' selected' : ''}" data-idx="${i}" data-id="${t.task_id}" onclick="openTask('${t.task_id}')">
         <div class="task-title">${escapeHtml(t.title || '无标题')}</div>
         <div class="task-meta">
           <span class="task-id">${t.task_id}</span>
+          ${t.priority ? `<span class="badge" style="background:#fff3cd;color:#856404;font-size:10px;padding:1px 5px;">P${t.priority}</span>` : ''}
           <span class="task-assignee">${t.assignee || '—'}</span>
         </div>
       </div>
@@ -438,7 +439,9 @@ function showTaskModal(task) {
   document.getElementById('modalInfo').innerHTML = `
     <span class="badge ${badgeClass}">${(task.status || 'todo').toUpperCase()}</span>
     <span class="modal-info-item">分配: <strong>${task.assignee || '未分配'}</strong></span>
+    ${task.priority ? `<span class="modal-info-item">优先级: <strong>P${task.priority}</strong></span>` : ''}
     <span class="modal-info-item">创建: <strong>${task.created_at ? new Date(task.created_at * 1000).toLocaleString('zh-CN') : '—'}</strong></span>
+    ${task.depends ? `<span class="modal-info-item">依赖: <strong>${task.depends}</strong></span>` : ''}
   `;
 
   // 详情内容: summary 来自后端的 task.summary（latest_summary 扁平化）
@@ -937,17 +940,18 @@ function moveSelection(dir) {
   });
   allTaskIds = flat.map(t => t.task_id);
 
-  if (selectedCardIndex < 0) {
+  if (selectedTaskId == null) {
     selectedCardIndex = dir > 0 ? 0 : flat.length - 1;
   } else {
-    selectedCardIndex = Math.max(0, Math.min(flat.length - 1, selectedCardIndex + dir));
+    const curIdx = allTaskIds.indexOf(selectedTaskId);
+    selectedCardIndex = Math.max(0, Math.min(flat.length - 1, curIdx + dir));
   }
   selectedTaskId = allTaskIds[selectedCardIndex];
-  // 更新卡片样式
+  // 更新卡片样式：用 task_id 判断
   document.querySelectorAll('.task-card').forEach(c => c.classList.remove('selected'));
-  const card = document.querySelector(`.task-card[data-idx="${selectedCardIndex}"]`);
+  document.querySelectorAll(`.task-card[data-id="${selectedTaskId}"]`).forEach(c => c.classList.add('selected'));
+  const card = document.querySelector(`.task-card[data-id="${selectedTaskId}"]`);
   if (card) {
-    card.classList.add('selected');
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
@@ -957,6 +961,26 @@ function clearSelection() {
   selectedCardIndex = -1;
   selectedTaskId = null;
   document.querySelectorAll('.task-card.selected').forEach(c => c.classList.remove('selected'));
+}
+
+// 快捷键操作（复用 doAction 但不带 UI 反馈）
+async function performAction(taskId, action) {
+  try {
+    const endpoints = { complete: 'complete', block: 'block', unblock: 'unblock', archive: 'archive' };
+    const endpoint = endpoints[action];
+    if (!endpoint) return;
+    if (action === 'archive' && !confirm('确定要归档此任务？')) return;
+    if (action !== 'archive') {
+      const labels = { block: '阻塞', unblock: '解阻', complete: '完成' };
+      if (!confirm(`确定要${labels[action]}此任务？`)) return;
+    }
+    const res = await fetch(`${API}/api/task/${taskId}/${endpoint}`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    loadTasks();
+    loadStats();
+  } catch (e) {
+    alert(`操作失败: ${e.message}`);
+  }
 }
 
 document.addEventListener('keydown', handleKeyboardNav);

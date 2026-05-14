@@ -157,6 +157,14 @@
           <textarea id="c-body" rows="3" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
         </div>
         <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">Scope（涉及文件/模块）</label>
+          <input type="text" id="c-scope" placeholder="如：~/project/src/main.py, ~/project/config.toml" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">验收标准（每行一条）</label>
+          <textarea id="c-success" rows="3" placeholder="每行一条验收标准，如：&#10;1. 修改后编译通过&#10;2. 登录功能正常" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+        <div style="margin-bottom:14px;">
           <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">接收准则</label>
           <textarea id="c-acceptance" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
         </div>
@@ -516,6 +524,8 @@ function openCreateModal() {
   document.getElementById('c-skills').value = 'kanban-task-workflow';
   document.getElementById('c-assignee').value = '';
   document.getElementById('c-depends').value = '';
+  document.getElementById('c-scope').value = '';
+  document.getElementById('c-success').value = '';
   document.getElementById('createModal').classList.add('active');
 }
 
@@ -544,7 +554,9 @@ async function submitCreate(e) {
     acceptance_criteria: acceptance,
     notes,
     max_retries: maxRetries,
-    priority
+    priority,
+    scope: document.getElementById('c-scope').value.trim(),
+    success_criteria: document.getElementById('c-success').value.trim()
   };
   if (skill) payload.skills = [skill];
   if (assignee) payload.assignee = assignee;
@@ -561,6 +573,16 @@ async function submitCreate(e) {
     }
     const result = await res.json();
     const newTaskId = result.task_id;
+
+    // 静默显示 T 号
+    if (result.task_number) {
+      const btn = document.querySelector('#createForm button[type="submit"]');
+      const orig = btn.textContent;
+      btn.textContent = '已创建 ' + result.task_number;
+      btn.style.background = '#1a7f37';
+      setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 2000);
+    }
+
     // 处理依赖关系
     const depends = document.getElementById('c-depends').value.trim();
     if (depends && newTaskId) {

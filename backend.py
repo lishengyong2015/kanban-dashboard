@@ -3,6 +3,7 @@ Kanban Web Dashboard Backend
 """
 import json
 import os
+import re
 import subprocess
 from typing import Optional
 
@@ -120,31 +121,62 @@ def create_task(data: dict):
     if not title:
         raise HTTPException(status_code=400, detail="标题不能为空")
 
-    args = [title]
+    # 读取下一个 T 号
+    counter_file = os.path.expanduser("~/.hermes/kanban_task_numbers.txt")
+    try:
+        with open(counter_file, "r") as f:
+            lines = f.readlines()
+        counter = 0
+        for line in lines:
+            if line.startswith("counter="):
+                counter = int(line.split("=")[1].strip())
+                break
+        next_num = counter + 1
+        t_number = f"T{next_num}"
+    except Exception:
+        t_number = "T?"
+
+    # 构造成 kanban-task-workflow 格式的 body
+    scope = data.get("scope", "").strip()
+    success_criteria_raw = data.get("success_criteria", "").strip()
+    success_criteria_lines = [l.strip() for l in success_criteria_raw.split("\n") if l.strip()]
 
     body_parts = []
+    body_parts.append(f"task_number: {t_number}")
+    body_parts.append(f"task_title: {title}")
+    body_parts.append(f"source: 用户直接创建")
+    body_parts.append(f"notify_target: feishu:oc_fc755b43e929c9ccd5f88dee623818fb")
+    body_parts.append(f"current_phase: phase0")
+    body_parts.append(f"retreat_count: 0")
+    body_parts.append(f"review_track: light")
+    body_parts.append("")
+
     if data.get("body"):
         body_parts.append(data["body"].strip())
+    if success_criteria_lines:
+        body_parts.append("")
+        body_parts.append("success_criteria:")
+        for sc in success_criteria_lines:
+            body_parts.append(f"  - {sc}")
+    if scope:
+        body_parts.append("")
+        body_parts.append(f"scope: {scope}")
     if data.get("acceptance_criteria"):
-        body_parts.append("\n\n## 接收准则\n" + data["acceptance_criteria"].strip())
-    default_notes = "注意GBK文件不要乱码"
-    notes = data.get("notes", default_notes).strip()
-    if notes and notes != default_notes:
-        body_parts.append("\n\n---\n" + notes)
-    elif body_parts or not notes:
-        body_parts.append("\n\n---\n" + default_notes)
+        body_parts.append("")
+        body_parts.append("## 接收准则")
+        body_parts.append(data["acceptance_criteria"].strip())
 
-    if body_parts:
-        args.extend(["--body", "\n".join(body_parts)])
+    full_body = "\n".join(body_parts)
+
+    # 构建 hermes kanban create 命令参数
+    args = [title, "--body", full_body]
 
     assignee = data.get("assignee")
     if assignee:
         args.extend(["--assignee", assignee])
 
-    skills = data.get("skills")
-    if skills:
-        for s in skills:
-            args.extend(["--skill", s])
+    # 始终带上 kanban-task-workflow skill
+    args.extend(["--skill", "kanban-task-workflow"])
 
     max_retries = data.get("max_retries")
     if max_retries is not None:
@@ -155,14 +187,25 @@ def create_task(data: dict):
         args.extend(["--priority", str(priority)])
 
     result = run_kanban(["create"] + args)
-    # create 成功返回纯文本，格式: Created task t_xxxx
-    if result.get("ok") and "task_id" not in result:
-        import re
+
+    # 更新 counter
+    try:
+        with open(counter_file, "r") as f:
+            content = f.read()
+        new_content = re.sub(r'(?<=counter=)\d+', str(next_num), content)
+        if new_content != content:
+            with open(counter_file, "w") as f:
+                f.write(new_content)
+    except Exception:
+        pass
+
+    # 解析 task_id（可能已在 result 中，也可能需从 message 提取）
+    task_id = result.get("task_id")
+    if not task_id:
         m = re.search(r"(t_[a-z0-9]+)", result.get("message", ""))
         task_id = m.group(1) if m else "unknown"
-        return {"task_id": task_id, "status": "created"}
 
-    return result
+    return {"task_id": task_id, "status": "created", "task_number": t_number}
 
 
 # ─── Worker列表 ─────────────────────────────────────────────────────────────

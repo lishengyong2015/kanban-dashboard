@@ -180,6 +180,65 @@ def list_profiles():
     return profiles
 
 
+# ─── 统计概览 ──────────────────────────────────────────────────────────────
+
+@app.get("/api/stats")
+def get_stats():
+    data = run_kanban(["stats", "--json"])
+    return data
+
+
+# ─── 运行历史 ──────────────────────────────────────────────────────────────
+
+@app.get("/api/task/{task_id}/runs")
+def get_task_runs(task_id: str):
+    data = run_kanban(["runs", task_id, "--json"])
+    return data
+
+
+# ─── Worker 日志 ────────────────────────────────────────────────────────────
+
+@app.get("/api/task/{task_id}/log")
+def get_task_log(task_id: str):
+    cmd = [HERMES_BIN, "kanban", "log", task_id]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.expanduser("~"))
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr.strip())
+    return {"log": result.stdout}
+
+
+# ─── 任务评论 ────────────────────────────────────────────────────────────────
+
+@app.post("/api/task/{task_id}/comment")
+def add_comment(task_id: str, data: dict = {}):
+    text = data.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="评论内容不能为空")
+    run_kanban(["comment", task_id, text])
+    return {"ok": True}
+
+
+# ─── 归档任务 ────────────────────────────────────────────────────────────────
+
+@app.post("/api/task/{task_id}/archive")
+def archive_task(task_id: str):
+    run_kanban(["archive", task_id])
+    return {"ok": True}
+
+
+# ─── 父子依赖 ────────────────────────────────────────────────────────────────
+
+@app.post("/api/links")
+def manage_link(data: dict = {}):
+    action = data.get("action")  # "link" or "unlink"
+    parent_id = data.get("parent_id")
+    child_id = data.get("child_id")
+    if action not in ("link", "unlink") or not parent_id or not child_id:
+        raise HTTPException(status_code=400, detail="需要 action (link/unlink), parent_id, child_id")
+    run_kanban([action, parent_id, child_id])
+    return {"ok": True}
+
+
 # ─── 启动 ───────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

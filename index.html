@@ -67,6 +67,15 @@
     .modal-actions { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; align-items: center; padding-top: 16px; border-top: 1px solid #eaeef2; }
     .modal-actions label { font-size: 14px; color: #656d76; }
     select#assignSelect { padding: 8px 12px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 14px; }
+    .stats-bar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    .stat-card { background: white; border-radius: 8px; padding: 10px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center; min-width: 80px; }
+    .stat-num { display: block; font-size: 24px; font-weight: 700; color: #0969da; }
+    .stat-label { font-size: 11px; color: #656d76; text-transform: uppercase; letter-spacing: 0.5px; }
+    .tabs { display: flex; border-bottom: 2px solid #eaeef2; margin-bottom: 16px; }
+    .tab-btn { padding: 8px 16px; cursor: pointer; font-size: 14px; color: #656d76; border: none; background: none; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab-btn.active { color: #0969da; border-bottom-color: #0969da; font-weight: 600; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
   </style>
 </head>
 <body>
@@ -91,6 +100,15 @@
     <div id="workersList">加载中...</div>
   </div>
 
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card"><span class="stat-num" id="stat-todo">-</span><span class="stat-label">TODO</span></div>
+    <div class="stat-card"><span class="stat-num" id="stat-ready">-</span><span class="stat-label">READY</span></div>
+    <div class="stat-card"><span class="stat-num" id="stat-running">-</span><span class="stat-label">RUNNING</span></div>
+    <div class="stat-card"><span class="stat-num" id="stat-blocked">-</span><span class="stat-label">BLOCKED</span></div>
+    <div class="stat-card"><span class="stat-num" id="stat-done">-</span><span class="stat-label">DONE</span></div>
+    <div class="stat-card" id="stat-oldest-wrap" style="display:none;"><span class="stat-num" id="stat-oldest">-</span><span class="stat-label">最老READY</span></div>
+  </div>
+
   <div class="kanban-board" id="board">
     <div class="column" id="col-todo"><div class="column-header"><h3>TODO</h3><span class="column-count">0</span></div></div>
     <div class="column" id="col-ready"><div class="column-header"><h3>READY</h3><span class="column-count">0</span></div></div>
@@ -110,7 +128,14 @@
         <button class="close-btn" onclick="closeModal()">×</button>
       </div>
       <div class="modal-info" id="modalInfo"></div>
-      <div id="modalBody"></div>
+      <div class="tabs" id="taskTabs">
+        <button class="tab-btn active" onclick="switchTab('detail')">详情</button>
+        <button class="tab-btn" onclick="switchTab('runs')">运行记录</button>
+        <button class="tab-btn" onclick="switchTab('log')">日志</button>
+      </div>
+      <div id="tab-detail" class="tab-content active"></div>
+      <div id="tab-runs" class="tab-content"></div>
+      <div id="tab-log" class="tab-content"></div>
       <div class="modal-actions" id="modalActions"></div>
     </div>
   </div>
@@ -138,6 +163,10 @@
         <div style="margin-bottom:14px;">
           <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">注意事项</label>
           <textarea id="c-notes" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;">注意GBK文件不要乱码</textarea>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">依赖任务 ID</label>
+          <input type="text" id="c-depends" placeholder="可选，填入父任务ID，建立依赖关系" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
         </div>
         <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap;">
           <div style="flex:1;min-width:140px;">
@@ -217,6 +246,80 @@ async function loadProfiles() {
   }
 }
 
+async function loadStats() {
+  try {
+    const res = await fetch(`${API}/api/stats`);
+    const stats = await res.json();
+    document.getElementById('stat-todo').textContent = stats.by_status?.todo ?? '-';
+    document.getElementById('stat-ready').textContent = stats.by_status?.ready ?? '-';
+    document.getElementById('stat-running').textContent = stats.by_status?.running ?? '-';
+    document.getElementById('stat-blocked').textContent = stats.by_status?.blocked ?? '-';
+    document.getElementById('stat-done').textContent = stats.by_status?.done ?? '-';
+    if (stats.oldest_ready_seconds) {
+      const mins = Math.floor(stats.oldest_ready_seconds / 60);
+      document.getElementById('stat-oldest').textContent = mins < 60 ? `${mins}m` : `${Math.floor(mins/60)}h${mins%60}m`;
+      document.getElementById('stat-oldest-wrap').style.display = '';
+    }
+  } catch (e) { /* silently fail */ }
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
+  document.getElementById(`tab-${tab}`).classList.add('active');
+}
+
+async function loadRunsTab(taskId, container) {
+  try {
+    const res = await fetch(`${API}/api/task/${taskId}/runs`);
+    const runs = await res.json();
+    if (!runs || runs.length === 0) {
+      container.innerHTML = '<p style="color:#656d76;">暂无运行记录</p>';
+      return;
+    }
+    const rows = runs.map(r => `
+      <tr>
+        <td style="padding:6px 10px;border-bottom:1px solid #eaeef2;">${escapeHtml(r.profile || '-')}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eaeef2;">${escapeHtml(r.outcome || '-')}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eaeef2;">${r.elapsed_ms ? (r.elapsed_ms/1000).toFixed(1)+'s' : '-'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eaeef2;font-size:13px;color:#1a1a1a;">${escapeHtml(r.summary || '-')}</td>
+      </tr>
+    `).join('');
+    container.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="background:#f6f8fa;"><td style="padding:6px 10px;font-weight:600;">Worker</td><td style="padding:6px 10px;font-weight:600;">结果</td><td style="padding:6px 10px;font-weight:600;">耗时</td><td style="padding:6px 10px;font-weight:600;">摘要</td></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) {
+    container.innerHTML = `<p style="color:#cf222e;font-size:14px;">加载失败: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function loadLogTab(taskId, container) {
+  try {
+    const res = await fetch(`${API}/api/task/${taskId}/log`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    container.innerHTML = `<pre style="margin:0;font-size:12px;background:#f6f8fa;padding:10px;border-radius:6px;max-height:400px;overflow:auto;">${escapeHtml(data.log || '(无日志)')}</pre>`;
+  } catch (e) {
+    container.innerHTML = `<p style="color:#cf222e;font-size:14px;">加载失败: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function submitComment() {
+  const text = document.getElementById('commentInput').value.trim();
+  if (!text) return;
+  try {
+    await fetch(`${API}/api/task/${selectedTaskId}/comment`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text})
+    });
+    document.getElementById('commentInput').value = '';
+    // 重新打开弹窗刷新
+    openTask(selectedTaskId);
+  } catch (e) {
+    alert('评论失败: ' + e.message);
+  }
+}
+
 function renderBoard(tasks) {
   const columns = { todo: [], ready: [], running: [], blocked: [], done: [] };
   tasks.forEach(t => {
@@ -278,13 +381,32 @@ function showTaskModal(task) {
   if (task.body) {
     body += `<div class="modal-section"><h4>Body</h4><pre>${escapeHtml(task.body)}</pre></div>`;
   }
-  document.getElementById('modalBody').innerHTML = body || '<div class="modal-section"><p style="color:#656d76;">无额外详情</p></div>';
+  document.getElementById('tab-detail').innerHTML = body || '<div class="modal-section"><p style="color:#656d76;">无额外详情</p></div>';
+
+  // 评论区块（追加到 tab-detail）
+  const commentSection = document.createElement('div');
+  commentSection.id = 'commentSection';
+  commentSection.style.cssText = 'margin-top:16px;padding-top:16px;border-top:1px solid #eaeef2;';
+  commentSection.innerHTML = `
+    <h4 style="margin:0 0 10px;font-size:13px;color:#656d76;text-transform:uppercase;">评论</h4>
+    <div id="commentList"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <input type="text" id="commentInput" placeholder="添加评论..." style="flex:1;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;" onkeydown="if(event.key==='Enter')submitComment()">
+      <button class="primary" onclick="submitComment()">发送</button>
+    </div>
+  `;
+  document.getElementById('tab-detail').appendChild(commentSection);
+
+  // 加载运行记录和日志
+  loadRunsTab(task.task_id, document.getElementById('tab-runs'));
+  loadLogTab(task.task_id, document.getElementById('tab-log'));
 
   // 操作按钮
   let actions = '';
   const status = task.status || 'todo';
   if (status !== 'done') {
     actions += `<button class="primary" onclick="doAction('complete')">✓ 完成</button>`;
+    actions += `<button class="danger" onclick="doAction('archive')">归档</button>`;
   }
   if (status !== 'blocked') {
     actions += `<button class="warning" onclick="doAction('block')">⊘ 阻塞</button>`;
@@ -322,7 +444,23 @@ async function doAction(action) {
     }
     return;
   }
-  const labels = {block: '阻塞', unblock: '解阻'};
+  if (action === 'archive') {
+    if (!confirm('确定要归档此任务？')) return;
+    try {
+      const res = await fetch(`${API}/api/task/${selectedTaskId}/archive`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.text() }));
+        throw new Error(err.detail || res.statusText);
+      }
+      closeModal();
+      loadTasks();
+      loadStats();
+    } catch (e) {
+      alert(`归档失败: ${e.message}`);
+    }
+    return;
+  }
+  const labels = {block: '阻塞', unblock: '解阻', archive: '归档'};
   if (!confirm(`确定要${labels[action] || action}此任务？`)) return;
   try {
     const res = await fetch(`${API}/api/task/${selectedTaskId}/${action}`, { method: 'POST' });
@@ -377,6 +515,7 @@ function openCreateModal() {
   document.getElementById('c-priority').value = '0';
   document.getElementById('c-skills').value = 'kanban-task-workflow';
   document.getElementById('c-assignee').value = '';
+  document.getElementById('c-depends').value = '';
   document.getElementById('createModal').classList.add('active');
 }
 
@@ -420,6 +559,21 @@ async function submitCreate(e) {
       const err = await res.json().catch(() => ({ detail: res.text() }));
       throw new Error(err.detail || res.statusText);
     }
+    const result = await res.json();
+    const newTaskId = result.task_id;
+    // 处理依赖关系
+    const depends = document.getElementById('c-depends').value.trim();
+    if (depends && newTaskId) {
+      try {
+        await fetch(`${API}/api/links`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'link', parent_id: depends, child_id: newTaskId })
+        });
+      } catch (e) {
+        console.error('建立依赖失败:', e);
+      }
+    }
     closeCreateModal();
     loadTasks();
   } catch (e) {
@@ -455,8 +609,10 @@ document.getElementById('createModal').addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeCreateModal(); } });
 loadTasks();
+loadStats();
 loadProfiles();
 setInterval(loadTasks, 30000);
+setInterval(loadStats, 30000);
 </script>
 </body>
 </html>

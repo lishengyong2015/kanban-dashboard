@@ -71,6 +71,16 @@ def list_tasks(status: Optional[str] = None, search: Optional[str] = None):
     return data
 
 
+@app.get("/api/tasks/pending")
+def list_pending_tasks():
+    """返回未完成的任务（供依赖下拉选择）"""
+    data = run_kanban(["list", "--json"])
+    pending = [t for t in data if t.get("status") not in ("done", "archived")]
+    for t in pending:
+        if "id" in t and "task_id" not in t:
+            t["task_id"] = t.pop("id")
+    return [{"task_id": t["task_id"], "title": t.get("title", ""), "status": t.get("status", "")} for t in pending]
+
 # ─── 任务详情 ────────────────────────────────────────────────────────────────
 
 @app.get("/api/task/{task_id}")
@@ -137,7 +147,6 @@ def create_task(data: dict):
         t_number = "T?"
 
     # 构造成 kanban-task-workflow 格式的 body
-    scope = data.get("scope", "").strip()
     success_criteria_raw = data.get("success_criteria", "").strip()
     success_criteria_lines = [l.strip() for l in success_criteria_raw.split("\n") if l.strip()]
 
@@ -158,13 +167,6 @@ def create_task(data: dict):
         body_parts.append("success_criteria:")
         for sc in success_criteria_lines:
             body_parts.append(f"  - {sc}")
-    if scope:
-        body_parts.append("")
-        body_parts.append(f"scope: {scope}")
-    if data.get("acceptance_criteria"):
-        body_parts.append("")
-        body_parts.append("## 接收准则")
-        body_parts.append(data["acceptance_criteria"].strip())
 
     full_body = "\n".join(body_parts)
 
@@ -185,6 +187,17 @@ def create_task(data: dict):
     priority = data.get("priority")
     if priority is not None:
         args.extend(["--priority", str(priority)])
+
+    # 项目路径 → --workspace dir:<path>
+    workspace = data.get("workspace", "").strip()
+    if workspace:
+        args.extend(["--workspace", f"dir:{workspace}"])
+        body_parts.append(f"project_path: {workspace}")
+
+    # 依赖 → --parent
+    depends = data.get("depends", "").strip()
+    if depends:
+        args.extend(["--parent", depends])
 
     result = run_kanban(["create"] + args)
 

@@ -33,6 +33,8 @@
 
     .task-card { background: #f6f8fa; border: 1px solid #eaeef2; border-radius: 8px; padding: 12px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; }
     .task-card:hover { border-color: #0969da; box-shadow: 0 2px 8px rgba(9,105,218,0.12); transform: translateY(-1px); }
+    .task-card.selected { border-color: #0969da; background: #ddf4ff; box-shadow: 0 0 0 2px #0969da; }
+    .shortcut-key { display: inline-block; background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: monospace; color: #0969da; }
     .task-title { font-weight: 600; font-size: 14px; color: #1a1a1a; margin-bottom: 8px; line-height: 1.4; }
     .task-meta { display: flex; justify-content: space-between; align-items: center; }
     .task-id { color: #0969da; font-size: 12px; font-weight: 500; font-family: monospace; }
@@ -93,6 +95,7 @@
     </select>
     <button onclick="loadTasks()">刷新</button>
     <button class="primary" onclick="openCreateModal()">+ 新建</button>
+    <button onclick="openImportModal()">导入</button>
   </div>
 
   <div class="workers-panel">
@@ -153,32 +156,30 @@
           <input type="text" id="c-title" required style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
         </div>
         <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">任务描述</label>
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">描述</label>
           <textarea id="c-body" rows="3" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
         </div>
         <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">Scope（涉及文件/模块）</label>
-          <input type="text" id="c-scope" placeholder="如：~/project/src/main.py, ~/project/config.toml" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">项目路径</label>
+          <input type="text" id="c-workspace" placeholder="不填则让 worker 自动查找，如：~/kanban-dashboard" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
         </div>
         <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">验收标准（每行一条）</label>
-          <textarea id="c-success" rows="3" placeholder="每行一条验收标准，如：&#10;1. 修改后编译通过&#10;2. 登录功能正常" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">完成条件（每行一条）</label>
+          <textarea id="c-success" rows="3" placeholder="每行一条完成条件，如：&#10;1. 修改后编译通过&#10;2. 登录功能正常" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
         </div>
         <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">接收准则</label>
-          <textarea id="c-acceptance" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;"></textarea>
-        </div>
-        <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">注意事项</label>
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">备注</label>
           <textarea id="c-notes" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;resize:vertical;box-sizing:border-box;">注意GBK文件不要乱码</textarea>
         </div>
         <div style="margin-bottom:14px;">
-          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">依赖任务 ID</label>
-          <input type="text" id="c-depends" placeholder="可选，填入父任务ID，建立依赖关系" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
+          <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">依赖</label>
+          <select id="c-depends" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
+            <option value="">无</option>
+          </select>
         </div>
         <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap;">
           <div style="flex:1;min-width:140px;">
-            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">重试次数</label>
+            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">重试</label>
             <input type="number" id="c-retries" value="2" min="0" max="10" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;box-sizing:border-box;">
           </div>
           <div style="flex:1;min-width:140px;">
@@ -188,7 +189,7 @@
         </div>
         <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap;">
           <div style="flex:1;min-width:140px;">
-            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">使用技能</label>
+            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">技能</label>
             <select id="c-skills" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;">
               <option value="kanban-task-workflow">kanban-task-workflow</option>
               <option value="">不使用技能</option>
@@ -209,13 +210,39 @@
     </div>
   </div>
 
+  <!-- 导入弹窗 -->
+  <div id="importModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1100;">
+    <div class="modal-content" style="width:560px;">
+      <div class="modal-header">
+        <h2 style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">从文件导入任务</h2>
+        <button class="close-btn" onclick="closeImportModal()">×</button>
+      </div>
+      <div style="margin:16px 0;font-size:14px;color:#656d76;line-height:1.6;">
+        选择 .md 或 .txt 文件，每两个 <code style="background:#f6f8fa;padding:1px 5px;border-radius:3px;">---</code> 之间为一个任务，支持以下中文字段：
+        <div style="margin-top:8px;background:#f6f8fa;padding:10px 14px;border-radius:6px;font-size:13px;">
+          标题 / 描述 / 项目路径 / 优先级 / 分配 / 技能 / 重试 / 备注
+        </div>
+      </div>
+      <input type="file" id="importFile" accept=".md,.txt" style="margin-bottom:16px;" onchange="handleFileSelect(this)">
+      <div id="importPreview" style="display:none;margin-bottom:16px;max-height:300px;overflow-y:auto;border:1px solid #d0d7de;border-radius:6px;padding:12px;font-size:13px;background:#f6f8fa;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button onclick="closeImportModal()">取消</button>
+        <button id="confirmImportBtn" class="primary" onclick="confirmImport()" disabled>确认导入</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 const API = 'http://localhost:8000';
 let currentTasks = [];
 let selectedTaskId = null;
+let selectedCardIndex = -1;  // 键盘选中索引
+let allTaskIds = [];          // 当前所有任务ID（用于键盘导航）
 let profiles = [];
 
 async function loadTasks() {
+  selectedCardIndex = -1;
+  selectedTaskId = null;
   const status = document.getElementById('statusFilter').value;
   const search = document.getElementById('searchInput').value;
   let url = `${API}/api/tasks`;
@@ -339,8 +366,8 @@ function renderBoard(tasks) {
     const col = document.getElementById(`col-${status}`);
     if (!col) return;
     col.querySelector('.column-count').textContent = items.length;
-    const cards = items.map(t => `
-      <div class="task-card" onclick="openTask('${t.task_id}')">
+    const cards = items.map((t, i) => `
+      <div class="task-card${selectedCardIndex === i ? ' selected' : ''}" data-idx="${i}" data-id="${t.task_id}" onclick="openTask('${t.task_id}')">
         <div class="task-title">${escapeHtml(t.title || '无标题')}</div>
         <div class="task-meta">
           <span class="task-id">${t.task_id}</span>
@@ -517,20 +544,161 @@ function openCreateModal() {
   // 重置表单
   document.getElementById('c-title').value = '';
   document.getElementById('c-body').value = '';
-  document.getElementById('c-acceptance').value = '';
   document.getElementById('c-notes').value = '注意GBK文件不要乱码';
   document.getElementById('c-retries').value = '2';
   document.getElementById('c-priority').value = '0';
   document.getElementById('c-skills').value = 'kanban-task-workflow';
   document.getElementById('c-assignee').value = '';
   document.getElementById('c-depends').value = '';
-  document.getElementById('c-scope').value = '';
+  loadPendingTasksForDepends();
+  document.getElementById('c-workspace').value = '';
   document.getElementById('c-success').value = '';
   document.getElementById('createModal').classList.add('active');
 }
 
 function closeCreateModal() {
   document.getElementById('createModal').classList.remove('active');
+}
+
+function openImportModal() {
+  document.getElementById('importFile').value = '';
+  document.getElementById('importPreview').style.display = 'none';
+  document.getElementById('importPreview').innerHTML = '';
+  document.getElementById('confirmImportBtn').disabled = true;
+  document.getElementById('importModal').style.display = 'flex';
+}
+
+function closeImportModal() {
+  document.getElementById('importModal').style.display = 'none';
+}
+
+let pendingImportTasks = [];
+
+function handleFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text = e.target.result;
+    const tasks = parseImportFile(text);
+    pendingImportTasks = tasks;
+    const preview = document.getElementById('importPreview');
+    if (tasks.length === 0) {
+      preview.innerHTML = '<span style="color:#cf222e;">未解析到任何任务，请检查文件格式</span>';
+      preview.style.display = 'block';
+      document.getElementById('confirmImportBtn').disabled = true;
+      return;
+    }
+    let html = `<b>解析到 ${tasks.length} 个任务：</b><ul style="margin:8px 0 0 0;padding-left:20px;">`;
+    tasks.forEach((t, i) => {
+      html += `<li>${i+1}. ${t.title || '<i>无标题</i>'} ${t.workspace ? '(' + t.workspace + ')' : ''}</li>`;
+    });
+    html += '</ul>';
+    preview.innerHTML = html;
+    preview.style.display = 'block';
+    document.getElementById('confirmImportBtn').disabled = false;
+  };
+  reader.readAsText(file);
+}
+
+function parseImportFile(text) {
+  const KEY_MAP = {
+    '标题': 'title', '描述': 'body', '项目路径': 'workspace',
+    '优先级': 'priority', '分配': 'assignee', '技能': 'skills',
+    '重试': 'max_retries', '备注': 'notes', '完成条件': 'success_criteria',
+    '依赖': 'depends'
+  };
+  const blocks = text.split(/^---$/m).filter(b => b.trim());
+  return blocks.map(block => {
+    const task = {};
+    const lines = block.trim().split('\n');
+    let currentKey = null, currentValue = [];
+    for (const line of lines) {
+      const keyMatch = line.match(/^([^\s：:]+)[:：]\s*(.*)$/);
+      if (keyMatch) {
+        if (currentKey) {
+          task[currentKey] = currentValue.join('\n').trim();
+        }
+        const rawKey = keyMatch[1];
+        currentKey = KEY_MAP[rawKey] || rawKey;
+        currentValue = [keyMatch[2]];
+      } else {
+        if (currentKey) currentValue.push(line);
+      }
+    }
+    if (currentKey) task[currentKey] = currentValue.join('\n').trim();
+    if (!task.title) return null;
+    if (task.skills && typeof task.skills === 'string') task.skills = [task.skills];
+    if (task.priority !== undefined) task.priority = parseInt(task.priority) || 0;
+    if (task.max_retries !== undefined) task.max_retries = parseInt(task.max_retries) || 0;
+    return task;
+  }).filter(t => t && t.title);
+}
+
+async function confirmImport() {
+  if (!pendingImportTasks.length) return;
+  const btn = document.getElementById('confirmImportBtn');
+  btn.disabled = true;
+  btn.textContent = '导入中...';
+  let success = 0, failed = 0;
+  const errors = [];
+  for (const task of pendingImportTasks) {
+    try {
+      const payload = { title: task.title };
+      if (task.body) payload.body = task.body;
+      if (task.success_criteria) payload.success_criteria = task.success_criteria;
+      if (task.notes) payload.notes = task.notes;
+      if (task.max_retries !== undefined) payload.max_retries = task.max_retries;
+      if (task.priority !== undefined) payload.priority = task.priority;
+      if (task.skills) payload.skills = task.skills;
+      if (task.assignee) payload.assignee = task.assignee;
+      if (task.workspace) payload.workspace = task.workspace;
+      if (task.depends) payload.depends = task.depends;
+      const res = await fetch(`${API}/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.text() }));
+        throw new Error(err.detail || res.statusText);
+      }
+      success++;
+    } catch (e) {
+      failed++;
+      errors.push(`${task.title}: ${e.message}`);
+    }
+  }
+  btn.textContent = '确认导入';
+  btn.disabled = false;
+  closeImportModal();
+  if (failed === 0) {
+    alert(`成功导入 ${success} 个任务`);
+  } else {
+    alert(`导入完成：成功 ${success}，失败 ${failed}\n${errors.slice(0,3).join('\n')}`);
+  }
+  pendingImportTasks = [];
+  loadTasks();
+}
+
+async function loadPendingTasksForDepends() {
+  const sel = document.getElementById('c-depends');
+  sel.innerHTML = '<option value="">加载中...</option>';
+  try {
+    const res = await fetch(`${API}/api/tasks/pending`);
+    const tasks = await res.json();
+    sel.innerHTML = '<option value="">无</option>';
+    const statusLabels = { todo: 'TODO', ready: 'READY', running: 'RUNNING', blocked: 'BLOCKED' };
+    tasks.forEach(t => {
+      const label = statusLabels[t.status] || t.status;
+      const opt = document.createElement('option');
+      opt.value = t.task_id;
+      opt.textContent = `${t.task_id} [${label}] ${t.title || ''}`;
+      sel.appendChild(opt);
+    });
+  } catch (e) {
+    sel.innerHTML = '<option value="">加载失败</option>';
+  }
 }
 
 async function submitCreate(e) {
@@ -541,7 +709,6 @@ async function submitCreate(e) {
     return;
   }
   const body = document.getElementById('c-body').value.trim();
-  const acceptance = document.getElementById('c-acceptance').value.trim();
   const notes = document.getElementById('c-notes').value.trim();
   const maxRetries = parseInt(document.getElementById('c-retries').value) || 0;
   const priority = parseInt(document.getElementById('c-priority').value) || 0;
@@ -551,13 +718,13 @@ async function submitCreate(e) {
   const payload = {
     title,
     body,
-    acceptance_criteria: acceptance,
     notes,
     max_retries: maxRetries,
     priority,
-    scope: document.getElementById('c-scope').value.trim(),
     success_criteria: document.getElementById('c-success').value.trim()
   };
+  const workspace = document.getElementById('c-workspace').value.trim();
+  if (workspace) payload.workspace = workspace;
   if (skill) payload.skills = [skill];
   if (assignee) payload.assignee = assignee;
 
@@ -620,16 +787,143 @@ function debounce(fn, ms) {
 // 事件绑定
 document.getElementById('statusFilter').addEventListener('change', loadTasks);
 document.getElementById('searchInput').addEventListener('input', debounce(loadTasks, 400));
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
-
-// 点击弹窗背景关闭
-document.getElementById('modal').addEventListener('click', e => {
-  if (e.target === document.getElementById('modal')) closeModal();
-});
-document.getElementById('createModal').addEventListener('click', e => {
-  if (e.target === document.getElementById('createModal')) closeCreateModal();
-});
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeCreateModal(); } });
+
+// 快捷键帮助面板（?键触发）
+function toggleShortcutsHelp() {
+  const existing = document.getElementById('shortcutsHelp');
+  if (existing) { existing.remove(); return; }
+  const div = document.createElement('div');
+  div.id = 'shortcutsHelp';
+  div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;border-radius:12px;padding:24px 28px;box-shadow:0 20px 60px rgba(0,0,0,0.3);z-index:2000;min-width:300px;';
+  div.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:16px;">键盘快捷键</h3>
+      <button onclick="toggleShortcutsHelp()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:0;">×</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:14px;">
+      <tr><td><span class="shortcut-key">n</span></td><td>新建任务</td></tr>
+      <tr style="background:#f6f8fa;"><td><span class="shortcut-key">j</span> / <span class="shortcut-key">↓</span></td><td>选中下一任务</td></tr>
+      <tr><td><span class="shortcut-key">k</span> / <span class="shortcut-key">↑</span></td><td>选中上一任务</td></tr>
+      <tr style="background:#f6f8fa;"><td><span class="shortcut-key">Enter</span></td><td>打开选中任务详情</td></tr>
+      <tr><td><span class="shortcut-key">x</span></td><td>完成选中任务</td></tr>
+      <tr style="background:#f6f8fa;"><td><span class="shortcut-key">b</span></td><td>阻塞选中任务</td></tr>
+      <tr><td><span class="shortcut-key">u</span></td><td>解阻选中任务</td></tr>
+      <tr style="background:#f6f8fa;"><td><span class="shortcut-key">a</span></td><td>归档选中任务</td></tr>
+      <tr><td><span class="shortcut-key">Esc</span></td><td>关闭弹窗 / 取消选中</td></tr>
+      <tr style="background:#f6f8fa;"><td><span class="shortcut-key">?</span></td><td>显示/隐藏帮助</td></tr>
+    </table>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', e => { if (e.target === div) toggleShortcutsHelp(); });
+}
+
+// 全局键盘处理器
+function handleKeyboardNav(e) {
+  // 忽略输入框/textarea内按键
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+    if (e.key === 'Escape') { closeModal(); closeCreateModal(); }
+    return;
+  }
+
+  // 弹窗打开时不处理看板导航
+  if (document.getElementById('modal').classList.contains('active') ||
+      document.getElementById('createModal').classList.contains('active')) {
+    if (e.key === 'Escape') { closeModal(); closeCreateModal(); }
+    return;
+  }
+
+  switch (e.key) {
+    case 'n':
+      e.preventDefault();
+      openCreateModal();
+      break;
+    case 'j':
+    case 'ArrowDown':
+      e.preventDefault();
+      moveSelection(1);
+      break;
+    case 'k':
+    case 'ArrowUp':
+      e.preventDefault();
+      moveSelection(-1);
+      break;
+    case 'Enter':
+      if (selectedCardIndex >= 0 && allTaskIds[selectedCardIndex]) {
+        e.preventDefault();
+        openTask(allTaskIds[selectedCardIndex]);
+      }
+      break;
+    case 'x':
+      if (selectedCardIndex >= 0 && allTaskIds[selectedCardIndex]) {
+        e.preventDefault();
+        performAction(allTaskIds[selectedCardIndex], 'complete');
+      }
+      break;
+    case 'b':
+      if (selectedCardIndex >= 0 && allTaskIds[selectedCardIndex]) {
+        e.preventDefault();
+        performAction(allTaskIds[selectedCardIndex], 'block');
+      }
+      break;
+    case 'u':
+      if (selectedCardIndex >= 0 && allTaskIds[selectedCardIndex]) {
+        e.preventDefault();
+        performAction(allTaskIds[selectedCardIndex], 'unblock');
+      }
+      break;
+    case 'a':
+      if (selectedCardIndex >= 0 && allTaskIds[selectedCardIndex]) {
+        e.preventDefault();
+        if (confirm('确定要归档此任务？')) {
+          performAction(allTaskIds[selectedCardIndex], 'archive');
+        }
+      }
+      break;
+    case '?':
+      e.preventDefault();
+      toggleShortcutsHelp();
+      break;
+    case 'Escape':
+      clearSelection();
+      break;
+  }
+}
+
+// 选中上下移动
+function moveSelection(dir) {
+  if (currentTasks.length === 0) return;
+  // 构建扁平任务列表（按todo→ready→running→blocked→done顺序）
+  const cols = ['todo', 'ready', 'running', 'blocked', 'done'];
+  const flat = [];
+  cols.forEach(col => {
+    currentTasks.filter(t => (t.status || 'todo') === col).forEach(t => flat.push(t));
+  });
+  allTaskIds = flat.map(t => t.task_id);
+
+  if (selectedCardIndex < 0) {
+    selectedCardIndex = dir > 0 ? 0 : flat.length - 1;
+  } else {
+    selectedCardIndex = Math.max(0, Math.min(flat.length - 1, selectedCardIndex + dir));
+  }
+  selectedTaskId = allTaskIds[selectedCardIndex];
+  // 更新卡片样式
+  document.querySelectorAll('.task-card').forEach(c => c.classList.remove('selected'));
+  const card = document.querySelector(`.task-card[data-idx="${selectedCardIndex}"]`);
+  if (card) {
+    card.classList.add('selected');
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+// 清除选中
+function clearSelection() {
+  selectedCardIndex = -1;
+  selectedTaskId = null;
+  document.querySelectorAll('.task-card.selected').forEach(c => c.classList.remove('selected'));
+}
+
+document.addEventListener('keydown', handleKeyboardNav);
 loadTasks();
 loadStats();
 loadProfiles();

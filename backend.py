@@ -49,6 +49,32 @@ def health():
     return {"status": "ok"}
 
 
+# ─── 可用模型列表 ─────────────────────────────────────────────────────────────
+
+@app.get("/api/models")
+def list_models():
+    """返回配置中可用的大模型列表"""
+    import yaml
+    config_path = os.path.expanduser("~/.hermes/config.yaml")
+    try:
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+    except Exception:
+        return [{"id": "MiniMax-M2.7-highspeed", "name": "MiniMax-M2.7-highspeed"}]
+
+    models = []
+    # 全局默认
+    if config.get("model", {}).get("default"):
+        mid = config["model"]["default"]
+        models.append({"id": mid, "name": mid})
+    # 各 provider 的 default_model
+    for prov, prov_data in config.get("providers", {}).items():
+        dm = prov_data.get("default_model")
+        if dm and dm not in [m["id"] for m in models]:
+            models.append({"id": dm, "name": f"{dm} ({prov})"})
+    return models
+
+
 # ─── 任务列表 ────────────────────────────────────────────────────────────────
 
 @app.get("/api/tasks")
@@ -167,6 +193,12 @@ def create_task(data: dict):
         body_parts.append("success_criteria:")
         for sc in success_criteria_lines:
             body_parts.append(f"  - {sc}")
+
+    # 大模型选择 → 写入 body
+    model = data.get("model", "").strip()
+    if model:
+        body_parts.append("")
+        body_parts.append(f"model: {model}")
 
     full_body = "\n".join(body_parts)
 

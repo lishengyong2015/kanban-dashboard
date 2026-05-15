@@ -7,6 +7,8 @@ import re
 import subprocess
 from typing import Optional
 
+import yaml
+
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -21,13 +23,14 @@ app.add_middleware(
 )
 
 HERMES_BIN = os.environ.get("HERMES_BIN", "/home/lsy/.local/bin/hermes")
+HERMES_HOME = "/home/lsy/.hermes"  # 硬编码HOME，避免worker上下文中~解析错误
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def run_kanban(args: list[str]) -> dict:
     """执行 hermes kanban CLI，返回 JSON。命令成功但无 JSON 输出时返回 ok=True。"""
     cmd = [HERMES_BIN, "kanban"] + args
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.expanduser("~"))
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd="/home/lsy")
     if result.returncode != 0:
         raise HTTPException(status_code=500, detail=result.stderr.strip())
     try:
@@ -132,7 +135,7 @@ def create_task(data: dict):
         raise HTTPException(status_code=400, detail="标题不能为空")
 
     # 读取下一个 T 号
-    counter_file = os.path.expanduser("~/.hermes/kanban_task_numbers.txt")
+    counter_file = os.path.join(HERMES_HOME, "kanban_task_numbers.txt")
     try:
         with open(counter_file, "r") as f:
             lines = f.readlines()
@@ -253,16 +256,24 @@ def get_profile(name: str):
             key, val = line.split(":", 1)
             info[key.strip().lower().replace(" ", "_")] = val.strip()
 
-    # SOUL.md 内容（default profile 在 ~/.hermes/SOUL.md，其他在 profiles/{name}/SOUL.md）
+    # SOUL.md 内容（default profile 在 config 同级，其他在 profiles/{name}/SOUL.md）
     if name == "default":
-        soul_path = os.path.expanduser(f"~/.hermes/SOUL.md")
+        soul_path = os.path.join(HERMES_HOME, "SOUL.md")
     else:
-        soul_path = os.path.expanduser(f"~/.hermes/profiles/{name}/SOUL.md")
+        soul_path = os.path.join(HERMES_HOME, "profiles", name, "SOUL.md")
     info["soul_exists"] = os.path.exists(soul_path)
     info["soul_content"] = ""
     if info["soul_exists"]:
         with open(soul_path) as f:
             info["soul_content"] = f.read()
+
+    # 解析 Model 行提取 provider
+    model_str = info.get("model", "")
+    if "(" in model_str and model_str.endswith(")"):
+        info["model"] = model_str[:model_str.rindex("(")].strip()
+        info["provider"] = model_str[model_str.rindex("(")+1:-1].strip()
+    else:
+        info["provider"] = ""
 
     return info
 
@@ -270,9 +281,9 @@ def get_profile(name: str):
 @app.put("/api/profile/{name}/soul")
 def update_soul(name: str, data: dict = Body(...)):
     if name == "default":
-        soul_path = os.path.expanduser("~/.hermes/SOUL.md")
+        soul_path = os.path.join(HERMES_HOME, "SOUL.md")
     else:
-        soul_path = os.path.expanduser(f"~/.hermes/profiles/{name}/SOUL.md")
+        soul_path = os.path.join(HERMES_HOME, "profiles", name, "SOUL.md")
     with open(soul_path, "w") as f:
         f.write(data.get("content", ""))
     return {"ok": True, "path": soul_path}
@@ -325,7 +336,7 @@ def get_task_runs(task_id: str):
 @app.get("/api/task/{task_id}/log")
 def get_task_log(task_id: str):
     cmd = [HERMES_BIN, "kanban", "log", task_id]
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=os.path.expanduser("~"))
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd="/home/lsy")
     if result.returncode != 0:
         raise HTTPException(status_code=500, detail=result.stderr.strip())
     return {"log": result.stdout}
@@ -348,6 +359,47 @@ def add_comment(task_id: str, data: dict = {}):
 def archive_task(task_id: str):
     run_kanban(["archive", task_id])
     return {"ok": True}
+
+
+# ─── Cron任务列表 ─────────────────────────────────────────────────────────────
+
+@app.get("/api/cron/jobs")
+def list_cron_jobs():
+    """返回当前配置的 cron 任务列表"""
+    cron_file = os.path.join(HERMES_HOME, "cron", "jobs.json")
+    if not os.path.exists(cron_file):
+        return []
+    try:
+        with open(cron_file, "r") as f:
+            jobs = json.load(f)
+        # 整理输出字段
+        result = []
+        for job in jobs:
+            result.append({
+                "id": job.get("id", ""),
+                "name": job.get("name", ""),
+                "prompt": job.get("prompt", ""),
+                "schedule_display": job.get("schedule_display", ""),
+                "schedule": job.get("schedule", {}),
+                "skills": job.get("skills", []),
+                "enabled": job.get("enabled", True),
+                "state": job.get("state", ""),
+                "repeat_times": job.get("repeat", {}).get("times"),
+                "repeat_completed": job.get("repeat", {}).get("completed", 0),
+                "next_run_at": job.get("next_run_at", ""),
+                "last_run_at": job.get("last_run_at", ""),
+                "last_status": job.get("last_status", ""),
+                "last_error": job.get("last_error", ""),
+                "deliver": job.get("deliver", ""),
+                "script": job.get("script"),
+                "no_agent": job.get("no_agent", False),
+                "created_at": job.get("created_at", ""),
+                "workdir": job.get("workdir"),
+                "enabled_toolsets": job.get("enabled_toolsets"),
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"读取cron任务失败: {e}")
 
 
 # ─── 父子依赖 ────────────────────────────────────────────────────────────────

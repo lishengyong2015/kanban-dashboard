@@ -99,6 +99,7 @@
     <button onclick="loadTasks()">刷新</button>
     <button class="primary" onclick="openCreateModal()">+ 新建</button>
     <button onclick="openImportModal()">导入</button>
+    <button onclick="openCronModal()" style="background:#2da44e;color:white;border-color:#2da44e;">⏰ Cron</button>
   </div>
 
   <div class="workers-panel">
@@ -134,7 +135,11 @@
         <button class="close-btn" onclick="closeWorkerModal()">×</button>
       </div>
       <div class="modal-info" style="margin-bottom:12px;display:flex;gap:16px;flex-wrap:wrap;">
-        <div class="modal-info-item">模型: <strong id="wmModel">-</strong></div>
+        <div class="modal-info-item">模型:
+          <select id="wmModelSelect" style="padding:4px 8px;border:1px solid #d0d7de;border-radius:4px;font-size:13px;max-width:260px;"></select>
+          <button onclick="saveModel()" style="padding:4px 10px;font-size:12px;margin-left:4px;">保存</button>
+          <span id="wmModelSaved" style="display:none;color:#1a7f37;font-size:12px;margin-left:4px;">已保存</span>
+        </div>
         <div class="modal-info-item">Skills: <strong id="wmSkills">-</strong></div>
         <div class="modal-info-item">.env: <strong id="wmEnv">-</strong></div>
         <div class="modal-info-item">SOUL.md: <strong id="wmSoulExists">-</strong></div>
@@ -263,6 +268,26 @@
       <div style="display:flex;gap:10px;justify-content:flex-end;">
         <button onclick="closeImportModal()">取消</button>
         <button id="confirmImportBtn" class="primary" onclick="confirmImport()" disabled>确认导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cron任务弹窗 -->
+  <div id="cronModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;z-index:1100;">
+    <div class="modal-content" style="width:900px;max-width:95vw;">
+      <div class="modal-header">
+        <h2 style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">⏰ Cron 任务</h2>
+        <button class="close-btn" onclick="closeCronModal()">×</button>
+      </div>
+      <div style="margin:12px 0;font-size:13px;color:#656d76;">
+        共 <strong id="cronCount">0</strong> 个任务
+        <button onclick="loadCronJobs()" style="margin-left:12px;padding:4px 10px;font-size:12px;">刷新</button>
+      </div>
+      <div id="cronList" style="max-height:65vh;overflow-y:auto;">
+        <p style="color:#656d76;text-align:center;padding:40px;">加载中...</p>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-end;">
+        <button onclick="closeCronModal()">关闭</button>
       </div>
     </div>
   </div>
@@ -809,6 +834,81 @@ async function submitCreate(e) {
   }
 }
 
+// ─── Cron任务 ─────────────────────────────────────────────────
+
+function openCronModal() {
+  document.getElementById('cronModal').style.display = 'flex';
+  loadCronJobs();
+}
+
+function closeCronModal() {
+  document.getElementById('cronModal').style.display = 'none';
+}
+
+async function loadCronJobs() {
+  const container = document.getElementById('cronList');
+  container.innerHTML = '<p style="color:#656d76;text-align:center;padding:40px;">加载中...</p>';
+  try {
+    const res = await fetch(`${API}/api/cron/jobs`);
+    if (!res.ok) throw new Error(await res.text());
+    const jobs = await res.json();
+    document.getElementById('cronCount').textContent = jobs.length;
+    if (jobs.length === 0) {
+      container.innerHTML = '<p style="color:#656d76;text-align:center;padding:40px;">暂无cron任务</p>';
+      return;
+    }
+    const rows = jobs.map(j => {
+      const statusLabel = j.enabled ? '运行中' : '已暂停';
+      const statusColor = j.enabled ? '#1a7f37' : '#cf222e';
+      const stateBadge = j.state === 'paused' ? '<span class="badge" style="background:#fff3cd;color:#856404;">已暂停</span>' : '';
+      const scheduleType = j.schedule?.kind || '-';
+      const scheduleIcon = scheduleType === 'interval' ? '🔄' : scheduleType === 'cron' ? '📅' : scheduleType === 'once' ? '⏰' : '•';
+      const nextRun = j.next_run_at ? new Date(j.next_run_at).toLocaleString('zh-CN') : '-';
+      const lastRun = j.last_run_at ? new Date(j.last_run_at).toLocaleString('zh-CN') : '-';
+      return `<tr>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-family:monospace;font-size:12px;">${escapeHtml(j.id)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-weight:500;">${escapeHtml(j.name)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;">${scheduleIcon} ${escapeHtml(j.schedule_display)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;">${stateBadge || '<span style="color:' + statusColor + ';">● ' + statusLabel + '</span>'}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;color:#656d76;">${nextRun}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;color:#656d76;">${lastRun}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;">${_cronStatusBadge(j.last_status)} ${_cronRepeatInfo(j)}</td>
+      </tr>`;
+    }).join('');
+    container.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:14px;">
+      <thead><tr style="background:#f6f8fa;">
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">ID</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">名称</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">调度</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">状态</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">下次执行</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">上次执行</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">运行</th>
+      </tr></thead>
+      <tbody>${rows}</tbody></table>`;
+  } catch (e) {
+    container.innerHTML = `<p style="color:#cf222e;text-align:center;padding:40px;">加载失败: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function _cronStatusBadge(status) {
+  if (!status) return '<span style="color:#656d76;">—</span>';
+  const map = {
+    'completed': '<span style="color:#1a7f37;">✓ 完成</span>',
+    'running': '<span style="color:#0969da;">▶ 运行中</span>',
+    'failed': '<span style="color:#cf222e;">✗ 失败</span>',
+    'skipped': '<span style="color:#bf8700;">↷ 跳过</span>',
+  };
+  return map[status] || escapeHtml(status);
+}
+
+function _cronRepeatInfo(job) {
+  const times = job.repeat_times;
+  const completed = job.repeat_completed;
+  if (times === null) return ''; // 无限重复
+  return ` <span style="color:#656d76;font-size:12px;">(${completed}/${times})</span>`;
+}
+
 function escapeHtml(s) {
   if (s === null || s === undefined) return '';
   return String(s)
@@ -867,8 +967,9 @@ function handleKeyboardNav(e) {
 
   // 弹窗打开时不处理看板导航
   if (document.getElementById('modal').classList.contains('active') ||
-      document.getElementById('createModal').classList.contains('active')) {
-    if (e.key === 'Escape') { closeModal(); closeCreateModal(); }
+      document.getElementById('createModal').classList.contains('active') ||
+      document.getElementById('cronModal').style.display === 'flex') {
+    if (e.key === 'Escape') { closeModal(); closeCreateModal(); closeCronModal(); }
     return;
   }
 
@@ -1012,7 +1113,6 @@ async function loadWorkerDetail(name) {
   const status = d.gateway || 'unknown';
   document.getElementById('wmStatus').textContent = status;
   document.getElementById('wmStatus').className = `badge badge-${status === 'running' ? 'done' : 'blocked'}`;
-  document.getElementById('wmModel').textContent = d.model || '-';
   document.getElementById('wmSkills').textContent = d.skills || '-';
   document.getElementById('wmEnv').textContent = (d['.env'] || d.env) === 'exists' ? '存在 ✓' : '不存在';
   document.getElementById('wmSoulExists').textContent = d.soul_exists ? '存在 ✓' : '不存在';

@@ -231,12 +231,6 @@
             </select>
           </div>
           <div style="flex:1;min-width:140px;">
-            <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">大模型</label>
-            <select id="c-model" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;">
-              <option value="">使用默认模型</option>
-            </select>
-          </div>
-          <div style="flex:1;min-width:140px;">
             <label style="display:block;font-size:13px;font-weight:600;color:#1a1a1a;margin-bottom:6px;">分配给</label>
             <select id="c-assignee" style="width:100%;padding:8px 12px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;">
               <option value="">不分配</option>
@@ -595,10 +589,9 @@ function openCreateModal() {
   document.getElementById('c-skills').value = 'kanban-task-workflow';
   document.getElementById('c-assignee').value = '';
   document.getElementById('c-depends').value = '';
+  loadPendingTasksForDepends();
   document.getElementById('c-workspace').value = '';
   document.getElementById('c-success').value = '';
-  loadPendingTasksForDepends();
-  loadModelsForCreate();
   document.getElementById('createModal').classList.add('active');
 }
 
@@ -747,23 +740,6 @@ async function loadPendingTasksForDepends() {
   }
 }
 
-async function loadModelsForCreate() {
-  const sel = document.getElementById('c-model');
-  sel.innerHTML = '<option value="">使用默认模型</option>';
-  try {
-    const res = await fetch(`${API}/api/models`);
-    const models = await res.json();
-    models.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = m.name;
-      sel.appendChild(opt);
-    });
-  } catch (e) {
-    // silently fail, keep default option
-  }
-}
-
 async function submitCreate(e) {
   e.preventDefault();
   const title = document.getElementById('c-title').value.trim();
@@ -784,8 +760,7 @@ async function submitCreate(e) {
     notes,
     max_retries: maxRetries,
     priority,
-    success_criteria: document.getElementById('c-success').value.trim(),
-    model: document.getElementById('c-model').value.trim()
+    success_criteria: document.getElementById('c-success').value.trim()
   };
   const workspace = document.getElementById('c-workspace').value.trim();
   if (workspace) payload.workspace = workspace;

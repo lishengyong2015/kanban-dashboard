@@ -865,14 +865,28 @@ async function loadCronJobs() {
       const scheduleIcon = scheduleType === 'interval' ? '🔄' : scheduleType === 'cron' ? '📅' : scheduleType === 'once' ? '⏰' : '•';
       const nextRun = j.next_run_at ? new Date(j.next_run_at).toLocaleString('zh-CN') : '-';
       const lastRun = j.last_run_at ? new Date(j.last_run_at).toLocaleString('zh-CN') : '-';
+      const escapedName = (j.name||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
+      const escapedPrompt = (j.prompt||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
+      const promptPreview = (j.prompt||'').replace(/&/g,'&amp;').replace(/\n/g,' ').substring(0, 60) + ((j.prompt||'').length > 60 ? '...' : '');
+      const lastError = j.last_error ? `<br><span style="color:#cf222e;font-size:11px;" title="${escapeHtml(j.last_error).replace(/"/g, '&quot;')}">⚠ ${escapeHtml(j.last_error).substring(0, 40)}</span>` : '';
+      const escapedSchedule = (j.schedule_display||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
+      const escapedDeliver = (j.deliver||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
       return `<tr>
         <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-family:monospace;font-size:12px;">${escapeHtml(j.id)}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-weight:500;">${escapeHtml(j.name)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-weight:500;" title="${promptPreview}">${escapeHtml(j.name)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;">${scheduleIcon} ${escapeHtml(j.schedule_display)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;">${stateBadge || '<span style="color:' + statusColor + ';">● ' + statusLabel + '</span>'}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;color:#656d76;">${nextRun}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;color:#656d76;">${lastRun}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;">${_cronStatusBadge(j.last_status)} ${_cronRepeatInfo(j)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:13px;">${_cronStatusBadge(j.last_status)} ${_cronRepeatInfo(j)}${lastError}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-size:12px;white-space:nowrap;">
+          <button onclick="showCronEditModal('${j.id}','${escapedName}','${escapedPrompt}','${escapedSchedule}','${escapedDeliver}')" style="padding:2px 6px;font-size:11px;" title="编辑">✏️</button>
+          ${j.enabled
+            ? '<button onclick="pauseCronJob(\''+j.id+'\')" style="padding:2px 6px;font-size:11px;" title="暂停">⏸</button>'
+            : '<button onclick="resumeCronJob(\''+j.id+'\')" style="padding:2px 6px;font-size:11px;" title="恢复">▶</button>'}
+          <button onclick="runCronJob('${j.id}')" style="padding:2px 6px;font-size:11px;" title="立即执行">🔄</button>
+          <button onclick="deleteCronJob('${j.id}','${escapedName}')" style="padding:2px 6px;font-size:11px;color:#cf222e;" title="删除">🗑</button>
+        </td>
       </tr>`;
     }).join('');
     container.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:14px;">
@@ -884,6 +898,7 @@ async function loadCronJobs() {
         <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">下次执行</th>
         <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">上次执行</th>
         <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">运行</th>
+        <th style="padding:8px 10px;text-align:left;font-weight:600;font-size:12px;color:#656d76;white-space:nowrap;">操作</th>
       </tr></thead>
       <tbody>${rows}</tbody></table>`;
   } catch (e) {
@@ -907,6 +922,95 @@ function _cronRepeatInfo(job) {
   const completed = job.repeat_completed;
   if (times === null) return ''; // 无限重复
   return ` <span style="color:#656d76;font-size:12px;">(${completed}/${times})</span>`;
+}
+
+// ─── Cron操作函数 ──────────────────────────────────────────────
+
+function showCronEditModal(id, name, prompt, schedule_display, deliver) {
+  const existing = document.getElementById('cronEditModal');
+  if (existing) existing.remove();
+  const decodedPrompt = prompt.replace(/\\n/g, '\n').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+  const decodedDeliver = (deliver||'').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
+  const div = document.createElement('div');
+  div.id = 'cronEditModal';
+  div.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1200;';
+  div.innerHTML = `
+    <div class="modal-content" style="width:600px;max-width:95vw;">
+      <div class="modal-header">
+        <h2 style="margin:0;font-size:20px;font-weight:700;color:#1a1a1a;">编辑 Cron 任务</h2>
+        <button class="close-btn" onclick="document.getElementById('cronEditModal').remove()">×</button>
+      </div>
+      <div style="padding:16px 0;">
+        <label style="display:block;margin-bottom:4px;font-weight:600;font-size:13px;">名称</label>
+        <input id="cronEditName" type="text" value="${escapeHtml(name)}" style="width:100%;padding:8px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;margin-bottom:16px;" />
+        <label style="display:block;margin-bottom:4px;font-weight:600;font-size:13px;">调度 (如: 30m / "0 9 * * *" / 2026-05-20T08:00:00)</label>
+        <input id="cronEditSchedule" type="text" value="${escapeHtml(schedule_display||'')}" style="width:100%;padding:8px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;margin-bottom:16px;" />
+        <label style="display:block;margin-bottom:4px;font-weight:600;font-size:13px;">监控内容 / Prompt</label>
+        <textarea id="cronEditPrompt" rows="8" style="width:100%;padding:8px;border:1px solid #d0d7de;border-radius:6px;font-size:13px;font-family:monospace;">${escapeHtml(decodedPrompt)}</textarea>
+        <label style="display:block;margin-bottom:4px;font-weight:600;font-size:13px;margin-top:16px;">投递目标 (如: feishu:oc_xxx / telegram / origin)</label>
+        <input id="cronEditDeliver" type="text" value="${escapeHtml(decodedDeliver)}" style="width:100%;padding:8px;border:1px solid #d0d7de;border-radius:6px;font-size:14px;margin-bottom:16px;" />
+      </div>
+      <div class="modal-actions">
+        <button onclick="saveCronEdit('${id}')" class="btn btn-primary">保存</button>
+        <button onclick="document.getElementById('cronEditModal').remove()" class="btn">取消</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', e => { if (e.target === div) div.remove(); });
+}
+
+async function saveCronEdit(id) {
+  const name = document.getElementById('cronEditName').value.trim();
+  const prompt = document.getElementById('cronEditPrompt').value.trim();
+  const schedule = document.getElementById('cronEditSchedule').value.trim();
+  const deliver = document.getElementById('cronEditDeliver').value.trim();
+  if (!name && !prompt && !schedule && !deliver) { alert('至少填一项'); return; }
+  try {
+    const res = await fetch(`${API}/api/cron/${id}/edit`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, prompt, schedule, deliver})
+    });
+    if (!res.ok) throw new Error(await res.text());
+    document.getElementById('cronEditModal').remove();
+    loadCronJobs();
+  } catch(e) { alert('编辑失败: ' + e.message); }
+}
+
+async function pauseCronJob(id) {
+  if (!confirm('确定暂停该任务？')) return;
+  try {
+    const res = await fetch(`${API}/api/cron/${id}/pause`, {method:'POST'});
+    if (!res.ok) throw new Error(await res.text());
+    loadCronJobs();
+  } catch(e) { alert('暂停失败: ' + e.message); }
+}
+
+async function resumeCronJob(id) {
+  try {
+    const res = await fetch(`${API}/api/cron/${id}/resume`, {method:'POST'});
+    if (!res.ok) throw new Error(await res.text());
+    loadCronJobs();
+  } catch(e) { alert('恢复失败: ' + e.message); }
+}
+
+async function runCronJob(id) {
+  if (!confirm('确定立即执行该任务？')) return;
+  try {
+    const res = await fetch(`${API}/api/cron/${id}/run`, {method:'POST'});
+    if (!res.ok) throw new Error(await res.text());
+    alert('任务已触发执行');
+    loadCronJobs();
+  } catch(e) { alert('执行失败: ' + e.message); }
+}
+
+async function deleteCronJob(id, name) {
+  if (!confirm(`确定删除任务 "${name}"？此操作不可撤销。`)) return;
+  try {
+    const res = await fetch(`${API}/api/cron/${id}/delete`, {method:'POST'});
+    if (!res.ok) throw new Error(await res.text());
+    loadCronJobs();
+  } catch(e) { alert('删除失败: ' + e.message); }
 }
 
 function escapeHtml(s) {
@@ -1119,6 +1223,8 @@ async function loadWorkerDetail(name) {
   document.getElementById('wmSoulContent').value = d.soul_content || '';
   document.getElementById('btnStartGateway').style.display = status !== 'running' ? '' : 'none';
   document.getElementById('btnStopGateway').style.display = status === 'running' ? '' : 'none';
+  // 加载模型下拉
+  await loadModelSelect(d.model, d.provider);
 }
 
 async function saveSoul() {
@@ -1131,6 +1237,68 @@ async function saveSoul() {
     document.getElementById('wmSoulExists').textContent = '已保存 ✓';
   } else {
     alert('保存失败: ' + (await r.text()));
+  }
+}
+
+async function loadModelSelect(currentModel, currentProvider) {
+  const sel = document.getElementById('wmModelSelect');
+  sel.innerHTML = '';
+  try {
+    const res = await fetch(`${API}/api/models`);
+    if (!res.ok) { sel.innerHTML = '<option>加载失败</option>'; return; }
+    const models = await res.json();
+    if (!models || models.length === 0) {
+      sel.innerHTML = '<option>无可用模型</option>';
+      return;
+    }
+    models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = JSON.stringify({model: m.model, provider: m.provider});
+      const label = m.provider ? `${m.model} (${m.provider})` : m.model;
+      opt.textContent = label;
+      sel.appendChild(opt);
+    });
+    // 选中当前模型
+    if (currentModel) {
+      for (let i = 0; i < sel.options.length; i++) {
+        try {
+          const v = JSON.parse(sel.options[i].value);
+          if (v.model === currentModel && (v.provider === currentProvider || !currentProvider)) {
+            sel.selectedIndex = i;
+            break;
+          }
+        } catch(e) {}
+      }
+    }
+    document.getElementById('wmModelSaved').style.display = 'none';
+  } catch(e) {
+    sel.innerHTML = '<option>加载失败</option>';
+  }
+}
+
+async function saveModel() {
+  const sel = document.getElementById('wmModelSelect');
+  const savedLabel = document.getElementById('wmModelSaved');
+  if (!sel.value) { alert('请先选择一个模型'); return; }
+  let selected;
+  try {
+    selected = JSON.parse(sel.value);
+  } catch(e) {
+    alert('模型数据异常'); return;
+  }
+  try {
+    const r = await fetch(`${API}/api/profile/${currentWorker}/model`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(selected)
+    });
+    if (r.ok) {
+      savedLabel.style.display = 'inline';
+      setTimeout(() => { savedLabel.style.display = 'none'; }, 3000);
+    } else {
+      alert('保存失败: ' + (await r.text()));
+    }
+  } catch(e) {
+    alert('保存失败: ' + e.message);
   }
 }
 

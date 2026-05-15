@@ -315,6 +315,85 @@ def rename_profile(name: str, data: dict = Body(...)):
     return {"ok": True}
 
 
+# ─── 可用模型列表 ────────────────────────────────────────────────────────────
+
+@app.get("/api/models")
+def list_models():
+    """返回 config.yaml 中已配置的所有可用模型"""
+    config_path = os.path.join(HERMES_HOME, "config.yaml")
+    if not os.path.exists(config_path):
+        return []
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f) or {}
+
+    seen = set()
+    models = []
+
+    def add(m, p):
+        key = f"{m}@{p}"
+        if key not in seen:
+            seen.add(key)
+            models.append({"model": m, "provider": p or ""})
+
+    # 主模型
+    mm = cfg.get("model", {})
+    if mm.get("default"):
+        add(mm["default"], mm.get("provider", ""))
+
+    # providers 段
+    for name, p in (cfg.get("providers") or {}).items():
+        if p and p.get("default_model"):
+            add(p["default_model"], p.get("provider", name))
+
+    # fallback providers
+    for fb in (cfg.get("fallback_providers") or []):
+        if fb and fb.get("model"):
+            add(fb["model"], fb.get("provider", ""))
+
+    # delegation 模型
+    dg = cfg.get("delegation", {})
+    if dg.get("model"):
+        add(dg["model"], dg.get("provider", ""))
+
+    return models
+
+
+# ─── 修改 Worker 模型 ───────────────────────────────────────────────────────
+
+@app.put("/api/profile/{name}/model")
+def update_profile_model(name: str, data: dict = Body(...)):
+    """更新 profile 的 model.default 和 model.provider"""
+    new_model = (data.get("model") or "").strip()
+    new_provider = (data.get("provider") or "").strip()
+    if not new_model:
+        raise HTTPException(status_code=400, detail="model 不能为空")
+
+    # 确定 profile config.yaml 路径
+    if name == "default":
+        config_path = os.path.join(HERMES_HOME, "config.yaml")
+    else:
+        config_path = os.path.join(HERMES_HOME, "profiles", name, "config.yaml")
+
+    if not os.path.exists(config_path):
+        raise HTTPException(status_code=404, detail=f"Profile {name} 的配置文件不存在")
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f) or {}
+
+    if "model" not in cfg:
+        cfg["model"] = {}
+    cfg["model"]["default"] = new_model
+    if new_provider:
+        cfg["model"]["provider"] = new_provider
+    elif "provider" not in cfg.get("model", {}):
+        cfg["model"]["provider"] = ""
+
+    with open(config_path, "w") as f:
+        yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+
+    return {"ok": True, "model": new_model, "provider": new_provider}
+
+
 # ─── 统计概览 ──────────────────────────────────────────────────────────────
 
 @app.get("/api/stats")
@@ -366,13 +445,20 @@ def archive_task(task_id: str):
 @app.get("/api/cron/jobs")
 def list_cron_jobs():
     """返回当前配置的 cron 任务列表"""
-    cron_file = os.path.join(HERMES_HOME, "cron", "jobs.json")
-    if not os.path.exists(cron_file):
+    cron_dir = os.path.join(HERMES_HOME, "cron")
+    if not os.path.isdir(cron_dir):
         return []
+    # Hermes 存储 cron 任务的文件名是 .jobs_<hash>.tmp（不是固定的 jobs.json）
+    import glob
+    candidates = glob.glob(os.path.join(cron_dir, ".jobs_*.tmp"))
+    if not candidates:
+        return []
+    # 取最新的一个
+    cron_file = max(candidates, key=os.path.getmtime)
     try:
         with open(cron_file, "r") as f:
-            jobs = json.load(f)
-        # 整理输出字段
+            data = json.load(f)
+        jobs = data.get("jobs", []) if isinstance(data, dict) else []
         result = []
         for job in jobs:
             result.append({
@@ -400,6 +486,61 @@ def list_cron_jobs():
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"读取cron任务失败: {e}")
+
+
+def run_cron(args: list[str]) -> dict:
+    """Execute hermes cron CLI, return structured result."""
+    cmd = [HERMES_BIN, "cron"] + args
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd="/home/lsy")
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=result.stderr.strip() or result.stdout.strip())
+    return {"ok": True, "output": result.stdout.strip()}
+
+
+# ─── Cron任务编辑 ─────────────────────────────────────────────────────────────
+
+@app.post("/api/cron/{job_id}/edit")
+def edit_cron_job(job_id: str, data: dict = {}):
+    """Edit cron job name, prompt, schedule, or deliver target."""
+    name = (data.get("name") or "").strip()
+    prompt = (data.get("prompt") or "").strip()
+    schedule = (data.get("schedule") or "").strip()
+    deliver = (data.get("deliver") or "").strip()
+
+    args = ["edit", job_id]
+    if name:
+        args.extend(["--name", name])
+    if prompt:
+        args.extend(["--prompt", prompt])
+    if schedule:
+        args.extend(["--schedule", schedule])
+    if deliver:
+        args.extend(["--deliver", deliver])
+
+    if not name and not prompt and not schedule and not deliver:
+        raise HTTPException(status_code=400, detail="至少提供 name, prompt, schedule 或 deliver 之一")
+
+    return run_cron(args)
+
+
+@app.post("/api/cron/{job_id}/pause")
+def pause_cron_job(job_id: str):
+    return run_cron(["pause", job_id])
+
+
+@app.post("/api/cron/{job_id}/resume")
+def resume_cron_job(job_id: str):
+    return run_cron(["resume", job_id])
+
+
+@app.post("/api/cron/{job_id}/run")
+def run_cron_job_now(job_id: str):
+    return run_cron(["run", job_id, "--accept-hooks"])
+
+
+@app.post("/api/cron/{job_id}/delete")
+def delete_cron_job(job_id: str):
+    return run_cron(["remove", job_id])
 
 
 # ─── 父子依赖 ────────────────────────────────────────────────────────────────

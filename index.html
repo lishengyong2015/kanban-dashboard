@@ -865,12 +865,12 @@ async function loadCronJobs() {
       const scheduleIcon = scheduleType === 'interval' ? '🔄' : scheduleType === 'cron' ? '📅' : scheduleType === 'once' ? '⏰' : '•';
       const nextRun = j.next_run_at ? new Date(j.next_run_at).toLocaleString('zh-CN') : '-';
       const lastRun = j.last_run_at ? new Date(j.last_run_at).toLocaleString('zh-CN') : '-';
-      const escapedName = (j.name||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
-      const escapedPrompt = (j.prompt||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
-      const promptPreview = (j.prompt||'').replace(/&/g,'&amp;').replace(/\n/g,' ').substring(0, 60) + ((j.prompt||'').length > 60 ? '...' : '');
+      const escapedName = escapeAttr(j.name||'');
+      const escapedPrompt = escapeAttr(j.prompt||'');
+      const promptPreview = ((j.prompt||'').replace(/&/g,'&amp;').replace(/\n/g,' ').replace(/'/g,'&#39;')).substring(0, 60) + ((j.prompt||'').length > 60 ? '...' : '');
       const lastError = j.last_error ? `<br><span style="color:#cf222e;font-size:11px;" title="${escapeHtml(j.last_error).replace(/"/g, '&quot;')}">⚠ ${escapeHtml(j.last_error).substring(0, 40)}</span>` : '';
-      const escapedSchedule = (j.schedule_display||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
-      const escapedDeliver = (j.deliver||'').replace(/&/g,'&amp;').replace(/\n/g,'&#10;').replace(/'/g,"&#39;");
+      const escapedSchedule = escapeAttr(j.schedule_display||'');
+      const escapedDeliver = escapeAttr(j.deliver||'');
       return `<tr>
         <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-family:monospace;font-size:12px;">${escapeHtml(j.id)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #eaeef2;font-weight:500;" title="${promptPreview}">${escapeHtml(j.name)}</td>
@@ -1020,6 +1020,26 @@ function escapeHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// Escape value for embedding in double-quoted HTML onclick attribute.
+// Handles: HTML specials (& < > "), JS-string specials (\ ' \ \n).
+// Must match showCronEditModal's decode: .replace(/\\n/g,'\n').replace(/\\'/g,"'").replace(/\\\\/g,'\\')
+function escapeAttr(s) {
+  if (s === null || s === undefined) return '';
+  let r = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '&') r += '&amp;';
+    else if (c === '<') r += '&lt;';
+    else if (c === '>') r += '&gt;';
+    else if (c === '"') r += '&quot;';
+    else if (c === "'") r += "\\'";
+    else if (c === '\\') r += '\\\\';
+    else if (c === '\n') r += '\\n';
+    else r += c;
+  }
+  return r;
 }
 
 function debounce(fn, ms) {

@@ -446,19 +446,13 @@ def archive_task(task_id: str):
 def list_cron_jobs():
     """返回当前配置的 cron 任务列表"""
     cron_dir = os.path.join(HERMES_HOME, "cron")
-    if not os.path.isdir(cron_dir):
+    cron_file = os.path.join(cron_dir, "jobs.json")
+    if not os.path.isfile(cron_file):
         return []
-    # Hermes 存储 cron 任务的文件名是 .jobs_<hash>.tmp（不是固定的 jobs.json）
-    import glob
-    candidates = glob.glob(os.path.join(cron_dir, ".jobs_*.tmp"))
-    if not candidates:
-        return []
-    # 取最新的一个
-    cron_file = max(candidates, key=os.path.getmtime)
     try:
-        with open(cron_file, "r") as f:
+        with open(cron_file, "r", encoding="utf-8") as f:
             data = json.load(f)
-        jobs = data.get("jobs", []) if isinstance(data, dict) else []
+        jobs = data if isinstance(data, list) else data.get("jobs", [])
         result = []
         for job in jobs:
             result.append({
